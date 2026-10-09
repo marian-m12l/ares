@@ -236,6 +236,55 @@ auto Nintendo64::analyze(std::vector<u8>& data) -> string {
     }
   }
 
+  char clabel[61] = {0};
+  char* current = clabel;
+  bool jis = false;
+  for(u32 n : range(20)) {
+    char byte = data[0x20 + n];
+    unsigned char b = (unsigned char) byte;
+    // Characters in range 0xa1-0xdf are JIS X 0201 encoded. Convert to their UTF-8 counterparts.
+    if(b > 0xa0 && b < 0xc0) {
+      current[0] = 0xef;  current[1] = 0xbd;  current[2] = b;
+      current += 3;
+      jis = true;
+    } else if(b >= 0xc0 && b < 0xe0) {
+      current[0] = 0xef;  current[1] = 0xbe;  current[2] = b - 0x40;
+      current += 3;
+      jis = true;
+    } else if (b == 0x5c) {
+      // Character 0x5c in JIS X 0201 encoding differs from ASCII
+      // Will be overridden if JIS X 0201 is not used
+      current[0] = 0xc2;  current[1] = 0xa5;
+      current += 2;
+    } else if (b == 0x7e) {
+      // Character 0x7e in JIS X 0201 encoding differs from ASCII
+      // Will be overridden if JIS X 0201 is not used
+      current[0] = 0xe2;  current[1] = 0x80;  current[2] = 0xbe;
+      current += 3;
+    } else {
+      if(b < 0x20 || b > 0x7e)  byte = ' ';
+      current[0] = byte;
+      current += 1;
+    }
+  }
+  // If JIS X 0201 encoding is not used, restore original ASCII characters 0x5c and 0x7e
+  if (!jis) {
+    int from = 0;
+    for (int to=0; to<=58; to++) {
+      if (clabel[from] == (char) 0xc2 && clabel[from+1] == (char) 0xa5) {
+        clabel[to] = 0x5c;
+        from += 2;
+      } else if (clabel[from] == (char) 0xe2 && clabel[from+1] == (char) 0x80 && clabel[from+2] == (char) 0xbe) {
+        clabel[from] = 0x7e;
+        from += 3;
+      } else {
+        clabel[to] = clabel[from++];
+      }
+    }
+  }
+  string label = clabel;
+  label.strip();  //remove any excess whitespace from the label
+
   char region_code = data[0x3e];
   string region = "NTSC";
   switch(region_code) {
@@ -841,6 +890,7 @@ auto Nintendo64::analyze(std::vector<u8>& data) -> string {
   s += "game\n";
   s +={"  name:     ", Medium::name(location), "\n"};
   s +={"  title:    ", Medium::name(location), "\n"};
+  s +={"  label:    ", label, "\n"};
   s +={"  sha256:   ", sha256, "\n"};
   s +={"  region:   ", region, "\n"};
   s +={"  id:       ", id, region_code, "\n"};
